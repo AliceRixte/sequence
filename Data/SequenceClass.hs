@@ -18,11 +18,12 @@
 -- A type class for sequences.
 --
 -- See the package type-aligned for a generalization of this type class sequences.
--- 
+--
 -----------------------------------------------------------------------------
 module Data.SequenceClass(Sequence(..), ViewL(..), ViewR(..)) where
 
 import Data.Monoid
+import Data.Functor.Compose
 import Data.Foldable (foldl')
 import qualified Data.Traversable as T
 import qualified Data.Sequence as S
@@ -33,7 +34,7 @@ infix 5 ><
 infixl 9 :<
 infixr 9 :>
 {- | A type class for (finite) sequences
- 
+
 
 Instances should be /free monoids/
 (<http://comonad.com/reader/2015/free-monoids-in-haskell/ ignoring issues with infinite and partially defined structures>),
@@ -92,38 +93,38 @@ class T.Traversable s => Sequence s where
     ((><) | (|>) | (<|))
     #-}
 
-  empty     :: s c 
-  singleton :: c  -> s c 
+  empty     :: s c
+  singleton :: c  -> s c
   -- | Append two sequences
-  (><)       :: s c  -> s c   -> s c 
+  (><)       :: s c  -> s c   -> s c
   -- | View a sequence from the left
-  viewl     :: s c  -> ViewL s c 
+  viewl     :: s c  -> ViewL s c
   -- | View a sequence from the right
-  --          
+  --
   -- Default definition:
   --
-  -- > viewr q = case viewl q of 
+  -- > viewr q = case viewl q of
   -- >    EmptyL -> EmptyR
   -- >    h :< t -> case viewr t of
   -- >        EmptyR -> empty   :> h
   -- >        p :> l   -> (h <| p) :> l
   --
-  viewr     :: s c -> ViewR s c 
+  viewr     :: s c -> ViewR s c
   -- | Append a single element to the right
-  -- 
+  --
   -- Default definition:
   --
   -- > l |> r = l >< singleton r
-  -- 
-  (|>)       :: s c -> c  -> s c 
+  --
+  (|>)       :: s c -> c  -> s c
   -- | Append a single element to the left
-  -- 
+  --
   -- Default definition:
   --
   -- > l <| r = singleton l >< r
   --
   (<|)       :: c  -> s c -> s c
-  
+
   -- | Convert a list to a sequence
   --
   -- Default definition:
@@ -137,13 +138,13 @@ class T.Traversable s => Sequence s where
     EmptyL -> r
     h :< t  -> h <| (t >< r)
 
-  viewl q = case viewr q of 
+  viewl q = case viewr q of
     EmptyR -> EmptyL
     p :> l -> case viewl p of
         EmptyL -> l :< empty
         h :< t   -> h :< (t |> l)
 
-  viewr q = case viewl q of 
+  viewr q = case viewl q of
     EmptyL -> EmptyR
     h :< t -> case viewr t of
         EmptyR -> empty   :> h
@@ -153,19 +154,32 @@ class T.Traversable s => Sequence s where
 
 -- | A view of the left end of a 'Sequence'.
 data ViewL s c where
-   EmptyL  :: ViewL s c 
+   EmptyL  :: ViewL s c
    (:<)    :: c -> s c -> ViewL s c
 
 deriving instance (Show c, Show (s c)) => Show (ViewL s c)
 
 -- | A view of the right end of a 'Sequence'.
 data ViewR s c where
-   EmptyR  :: ViewR s c 
+   EmptyR  :: ViewR s c
    (:>)    :: s c -> c -> ViewR s c
 
 deriving instance (Show c, Show (s c)) => Show (ViewR s c)
 
- 
+instance Sequence s => Sequence (Compose Dual s) where
+  empty = Compose $ Dual empty
+  singleton = Compose . Dual . singleton
+  x <| Compose (Dual xs) = Compose $ Dual $ xs |> x
+  Compose (Dual xs) |> x = Compose $ Dual $ x <| xs
+  Compose (Dual xs) >< Compose (Dual ys) = Compose $ Dual $ ys >< xs
+  viewl (Compose (Dual xs)) = case viewr xs of
+    EmptyR -> EmptyL
+    t :> h -> h :< Compose (Dual t)
+  viewr (Compose (Dual xs)) = case viewl xs of
+    EmptyL -> EmptyR
+    h :< t -> Compose (Dual t) :> h
+  fromList = Compose . Dual . fromList
+
 instance Sequence S.Seq where
  empty = S.empty
  singleton = S.singleton
@@ -187,7 +201,7 @@ instance Sequence [] where
   xs |> x = xs ++ [x]
   (><) = (++)
   viewl [] = EmptyL
-  viewl (h : t) = h :< t 
+  viewl (h : t) = h :< t
 
   -- This definition is entirely strict. I'm not sure whether there's
   -- a real benefit to making it lazy or not.
